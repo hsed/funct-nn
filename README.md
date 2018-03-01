@@ -1,0 +1,2 @@
+# funct-linreg
+in f#
