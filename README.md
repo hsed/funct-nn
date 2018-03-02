@@ -11,11 +11,6 @@ An implementation of machine learing using a simple linear regression model and 
 3. Clone this repo and run `dotnet run` in the root directory
 4. Select an appropriate option for plotting the final result. Saving as a jpg should work for all operating systems.
 
-## Result
-```
-output: 
-```
-
 
 ## Tested On
 - Windows 10: VS Code + F# Language Support + .Net Core Framework 2.1.4
