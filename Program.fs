@@ -8,6 +8,7 @@ open MathNet.Numerics.Random
 
 type Weight = {w1: float; w2: float; b: float}
 
+let epochs = 50
 let yRealFn x = 0.4*(x**2.0) + 0.3*x + 0.9 + Normal.Sample(0.0, 1.0)
 
 //hypothesis
@@ -36,12 +37,10 @@ let transformList (yFunc) (X) : (float list * float list)=
     X
     |> (fun X -> (X, (List.map yFunc X)))
 
-let rng = SystemRandomSource.Default
-
 let wMain = {
-    w1 = rng.NextDouble();
-    w2 = rng.NextDouble();
-    b = rng.NextDouble();
+    w1 = Normal.Sample(0.0, 1.0);
+    w2 = Normal.Sample(0.0, 1.0);
+    b = Normal.Sample(0.0, 1.0);
 }
 
 //define data
@@ -101,7 +100,7 @@ let rec optimise (xList : float list) (hList: (Weight -> float) list) (yMap : Ma
 
     //main entry-point
     match i with
-    | index when (index < 50) ->
+    | index when (index < epochs) ->
         match (avgWError getDerivTuple) with
         | (w1E,w2E,bE) -> optimise xList hList yLookupMap (updateW w w1E w2E bE lr) (i+1)                  
     |  _ -> (MSE, w) 
@@ -110,10 +109,11 @@ let plotResults finalResult =
     use pl = new PLStream()
     pl.init()
     pl.env( 0.0, 10.0, 0.0, 30.0, AxesScale.Independent, AxisBox.BoxTicksLabelsAxes )
-    pl.lab( "x ->", "y ->", "A plot of true values ('x') vs final prediction (line)" )
+    
 
     match finalResult with
-    | (_, finalW) ->
+    | (finalMSE, finalW) ->
+        pl.lab( "x ->", "y ->", (sprintf "A plot of true values ('x') vs final prediction (line) [MSE: %0.4f]" finalMSE))
         pl.poin( List.toArray(XTrain), List.toArray(getYList yLookupMap), 'x')
         pl.line( List.toArray(XTrain), List.toArray(List.map (fun h -> (h finalW)) H))
 

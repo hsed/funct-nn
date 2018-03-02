@@ -6,8 +6,21 @@ An implementation of machine learing using a simple linear regression model and 
 
 ## Instructions
 
-This code was tested using VS Code on Windows and the .Net Core framework. It is expected to work on Linux and OS X but some additional software maybe required.
+1. Install the [.Net Core framework](https://www.microsoft.com/net/learn/get-started).
+2. If you are on windows skip this step, if you are on Linux run `sudo apt install libplplot-dev` or an equivalent command for macOS to install the PLplot library.
+3. Clone this repo and run `dotnet run` in the root directory
+4. Select an appropriate option for plotting the final result. Saving as a jpg should work for all operating systems.
 
-1. Install the .Net Core Framework
-2. Clone this repo and run `dotnet run` in the root directory
-3. Select an appropriate option for the plotting depending on your system, if a window doesn't pop-up due to lack of installed libraries just save the picture as png.
+## Result
+```
+output: 
+```
+
+
+## Tested On
+- Windows 10: VS Code + F# Language Support + .Net Core Framework 2.1.4
+- Ubuntu 16.04: .Net Core framework 2.1.4 + libplplot-dev
+
+
+## Article
+For more background on this code please read the medimum article here
