@@ -1,10 +1,6 @@
-﻿// Learn more about F# at http://fsharp.org
-//XPlot.Plotly.WPF
-
-open System
+﻿open System
 open PLplot
 open MathNet.Numerics.Distributions
-open MathNet.Numerics.Random
 open MathNet.Numerics.LinearAlgebra
 open MathNet.Numerics
 
@@ -22,7 +18,7 @@ type NodesVect = {sVect: Vector<float>; xVect: Vector<float>} //each nodesVect w
 
 type NodesVectList = NodesVect list
 
-let epochs = 2000//50
+let epochs = 3000//50
 let lr = 0.03//0.0001
 
 let getActFn (fn: ActFn) : (float->float) =
@@ -174,14 +170,13 @@ let evalAvgNetworkErr (xAndyEvalArr : (Vector<float> * Vector<float>) []) (errFn
            | xAndhArr, errArr -> (xAndhArr, (Array.sum errArr / (float) xAndyEvalArr.Length))
 
 
-let train (xAndyTrainArr) (xAndyTestArr) (initNetwork : Network) (epochs) : (float list) * Network =
+let train (xAndyTrainArr) (initNetwork : Network) (epochs) : (float list) * Network =
     let trainAndEvalEpoch  (xAndyTrainArrAndNetwork : (((Vector<float> * Vector<float>) []) * Network)) (epoch : int) : (float *  ((Vector<float> * Vector<float>) [] * Network)) =   
         // for every epoch u will have an initial state which will be xAndyArr * initNetwork
         // u will create permutation of this array and then u will feed this to tranEpoch fn.
         // once u get result u return shuffledXAndY and new weights but u also have a map part
         // the map part will calc MSE which is l2normerror or sqerr for all X_train
         // note here we are not concerned about generalisation but the ability of the network to be a universal funcion approximator!
-        // however this same mse fn can be used for test data later on
         let trainEpoch (_xAndyTrainArrAndInitNet) : (Vector<float> * Vector<float>) [] * Network =
             let perfGradDesc (currNetwork : Network) (xAndyTuple) : Network =
                 currNetwork |> fwdProp (fst xAndyTuple) |> backProp (snd xAndyTuple)
@@ -214,38 +209,46 @@ let train (xAndyTrainArr) (xAndyTestArr) (initNetwork : Network) (epochs) : (flo
 //extract the 0th dim from an array of N-dim vector tuples (x, y)
 let extractFstDim xAndyVectArr =
     let mapper (a : (Vector<'a> * Vector<'a>))= 
-            a  |> (fun (x, y) -> x.Item(0), y.Item(0))
+            a  |> (fun (x, y) -> x.[0], y.[0])
     Array.map mapper xAndyVectArr
 
 
 
 
-let plot xAndyTrueArr xAndyTestArr xAndhArr errArr testErr =
+let plot xAndyTrueArr xAndyDataArr xAndhTrainArr xAndhTestArr (errArr : float []) testErr xMax yMax =
     use pl = new PLStream()
     PLplot.Native.sdev("wincairo")
     pl.init()
-    pl.env( 0.0, 1.0, 0.0, 1.0, AxesScale.Independent, AxisBox.BoxTicksLabelsAxes )
+    pl.ssub(1, 2)
+    pl.col0(1)
+    pl.env( 0.0, xMax, 0.0, yMax, AxesScale.Independent, AxisBox.BoxTicksLabelsAxesMajorGrid )
     let xTrueArr, yTrueArr = Array.unzip xAndyTrueArr
-    //let xTrainArr, yTrainArr = Array.unzip xAndyTrainArr
-    let xTestArr, yTestArr = Array.unzip xAndyTestArr
-    let xEvalArr, hArr = Array.unzip xAndhArr   //the x values shuld be the same as xTestArr so that its like for like comparision
-    pl.lab( "x ->", "y ->", (sprintf "A plot of true fn (line) and test ('.') vs final hyp ('o') on test data [MSE-Test: %0.4f]" testErr))
-    pl.line(xTrueArr, yTrueArr)
-    pl.poin( xTestArr, yTestArr, '.')
-    pl.poin( xEvalArr, hArr, 'o')
+    let xDataArr, yDataArr = Array.unzip xAndyDataArr
+    let xTestArr, hTestArr = Array.unzip xAndhTestArr   //the x values shuld be the same as xDataArr so that its like for like comparision
+    let xTrainArr, hTrainArr = Array.unzip xAndhTrainArr
+    
+    pl.col0(2)
+    pl.lab( "x ->", "y ->", (sprintf "True Fn (line), Dataset ('.'), Train-Eval ('o'), Test-Eval ('x') [Train-MSE: %0.4f, Test-MSE: %0.4f, Epochs: %d]" errArr.[errArr.Length - 1] testErr errArr.Length))
+    pl.col0(9)
+    pl.line(xTrueArr, yTrueArr)             // underlying function (excludes noise from data-set)
+    pl.col0(11)
+    pl.poin( xDataArr, yDataArr, '.')       // full data-set for training and testing
+    pl.col0(5)
+    pl.poin( xTestArr, hTestArr, 'x')       // evaluation on unseen data (test)
+    pl.col0(3)
+    pl.poin( xTrainArr, hTrainArr, 'o')     // evaluation on seen data (train)
+
+    pl.col0(1)
+    pl.env( 1.0, float(errArr.Length), 0.0, Array.max errArr, AxesScale.Independent, AxisBox.BoxTicksLabelsAxesMajorGrid )
+    pl.col0(2)
+    pl.lab( "Epoch ->", "MSE ->", "Training Loss")
+    pl.col0(3)
+    pl.line( [| 1.0 .. float(errArr.Length) |], errArr)
+
+
 
 [<EntryPoint>]
 let main argv = 
-    //optimise weights, print final results and then plot the results
-
-    //printfn "ID(-343434.0) == %A" ((getActFn ID) -343434.0)
-
-    // printfn "%A" "test"
-    // |> printfn "%A"
-
-    //***test code
-    //(initNetwork [ 1 ; 1 ] [ ID ]) |> printfn "Result:\n%A"
-
     (*FOR DEBUGGING USING FIXED VALUES*)
     // // let x = 0.2
     // // let y = yRealFn x //temp for now we only do without noise for debugging
@@ -253,40 +256,38 @@ let main argv =
     // // let w_l1 = DenseMatrix.OfRowArrays([| [|0.1 ; 0.15|] ; [|0.05 ; 0.2|] |])
     // // let w_l2 = DenseMatrix.OfRowArrays([| [|0.7|] ; [|-0.6|] ; [|0.4|] |])
     // // let debugNNArch = [ {wMatx=w_l1 ; actFn=TANH} ; {wMatx=w_l2 ; actFn=ID} ]
-
     // // printfn "***DEBUG_ARCH: %A\n" debugNNArch
 
     // // debugNNArch
     // // |> fwdProp (CreateVector.Dense([|x|]))
     // // |> backProp (CreateVector.Dense([|y|]))
     // // |> printfn "***DEBUG_BACK-PROP_RESULT: \n\n%A" //|> //printfn "***DEBUG_FWD-PROP_RESULT: \n\n%A"
-
-    //***Real code
-    // let fwdPropResult = 
-    //     nnArch
-    //     |> fwdProp (CreateVector.Dense([|1.0|]))
-    // match fwdPropResult with
-    // | Ok(x) -> now do all folds (see below)!! -> plot -> print final weight
-    // | Error(x) -> now print error
-
+    
     printfn "Training vanilla NN with stochastic gradient descent..."
+    let stopWatch = System.Diagnostics.Stopwatch.StartNew()
     let xAndyTrueArr = genDataSet 0.0 1.0 0.001 yRealFn
-    let xAndyTrainArr = genDataSet 0.0 1.0 0.01 yRealFnAndNoise
-
-    let xAndyTestArr = xAndyTrainArr //for now they both are same
+    let xAndyDataArr = genDataSet 0.0 1.0 0.01 yRealFnAndNoise
+    
+    let xAndyTestArr  = Array.filter ( fun (x : Vector<float>, _) -> x.[0]*100.0 % 20.0 = 0.0) xAndyDataArr
+    let xAndyTrainArr  = Array.filter ( fun (x : Vector<float>, _) -> x.[0]*100.0 % 20.0 <> 0.0) xAndyDataArr
+    printfn "Dataset Length: %A\tTrain-set Length: %A\tTest-set Length: %A\tLearn-rate: %A\tEpochs: %d" xAndyDataArr.Length xAndyTrainArr.Length xAndyTestArr.Length lr epochs
+    
+    //let xAndyTestArr = genDataSet 0.0 1.0 0.01 yRealFnAndNoise //for now they both are same
 
     (initNetwork [ 1 ; 8 ; 1] [TANH ; ID])
     |> function
-       | Ok(net) -> (train xAndyTrainArr xAndyTestArr net epochs)
-                    |> (fun (errLst, finalNet) -> 
-                        printfn "Training for %A epochs done!\nFinal Network:\n%A\n\nFinal Train Error Lst Reversed:\n%A" epochs finalNet (List.rev errLst) ;
-                        
-                        let xAndhArr, avgTestErr = evalAvgNetworkErr (xAndyTestArr) (meanFeatureSqErr) (finalNet)
-                        
-                        plot (extractFstDim xAndyTrueArr)  (extractFstDim xAndyTestArr) (extractFstDim xAndhArr) errLst avgTestErr
-                       )
+        | Ok(net) -> (train xAndyTrainArr net epochs)
+                     |> function
+                        | (errLst, finalNet) -> 
+                          printfn "Training for %A epochs done! Took: %dms" epochs stopWatch.ElapsedMilliseconds
+                          //printfn "Final Network:\n%A\n\nFinal Train Error Lst Reversed:\n%A" finalNet (List.rev errLst)
+                          
+                          let xAndhTestArr, avgTestErr = evalAvgNetworkErr (xAndyTestArr) (meanFeatureSqErr) (finalNet)
+                          let xAndhTrainArr, _ = evalAvgNetworkErr (xAndyTrainArr) (meanFeatureSqErr) (finalNet)
+                          
+                          plot (extractFstDim xAndyTrueArr) (extractFstDim xAndyDataArr) (extractFstDim xAndhTrainArr) (extractFstDim xAndhTestArr) (Array.ofList errLst) avgTestErr 1.0 1.0
                      
-       | Error(x) -> printfn "%A" x
+        | Error(x) -> printfn "%A" x
 
 
 
