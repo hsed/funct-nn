@@ -6,10 +6,7 @@ open PLplot
 open MathNet.Numerics.Distributions
 open MathNet.Numerics.Random
 open MathNet.Numerics.LinearAlgebra
-open MathNet.Numerics.LinearAlgebra.Double
 open MathNet.Numerics
-open MathNet.Numerics.LinearAlgebra
-open System.Net.NetworkInformation
 
 type ErrType = string
 
@@ -43,19 +40,10 @@ let lastLayerDeriv (x_L : Vector<float>) (s_L : Vector<float>) (y : Vector<float
     (2.0*(x_L - y)).PointwiseMultiply(s_L.Map (Func<float, float> (getActFnDeriv (theta_L'))))
 
 //this is the SQUARE ERROR PART OF MSE, THE MEAN PART IS FOUND WHEN DOING THIS FOR ALL X_train or ALL X_test
-//notice this gives feature-wise square-error! there is no "mean" here.
-// to get mean we do mean feature-wise only! so we get a mse Vector afterwards where each component is mean over all data points
-//we will print out error separately for each output feature.
-//we CAN also either find the avg of avg error over all features to get one single scalar val i.e. mean of MSE
 //what we will actually do and this is equivalent as above line is
 //do sq err vector, find its mean so this is mean of errors for all features.
 //then mean this over all data points.
 let meanFeatureSqErr (h : Vector<float>) (y: Vector<float>) =
-            // (h - y).PointwisePower(2.0).SumMagnitudes() / (float) (h - y).Count
-            //L2Norm gives: (h_1 - y_1)^2 + (h_2 - y_2)^2 + ... + (h_d - y_d)^2
-            // just divide by length to get mean
-            // len of h and y must be same!!
-            // a mean of the feature error vect squared!
             (h - y).PointwisePower(2.0).SumMagnitudes() / (float) h.Count
            
 
@@ -66,7 +54,7 @@ let yRealFnAndNoise x = (yRealFn x) + 0.02*Normal.Sample(0.0, 1.0)
 //provide start, step, end and yFn
 //return a tuple array with each element as (x_i, y_i) //we return an array so we can do in-place sort for random shiffling
 //we can then convert it into a list for list reduction although array reduction is also possible.
-let genDataSet (startVal) (endVal) (stepVal) (fN : 'T -> 'T) = 
+let genDataSet (startVal) (endVal) (stepVal) (fN : float -> float) = 
     [| startVal .. stepVal .. endVal|]
     |> Array.map(fun x -> (CreateVector.Dense(1, x), CreateVector.Dense(1, fN x)))
     
@@ -166,15 +154,24 @@ let backProp (yVect : Vector<float>) (fwdPropEval : (NodesVectList * (Network)))
 // evalnet: the trained network
 //the errFn to supply will return a single float value for multiple output features and for now this will be the mean of the sq err of features
 let evalAvgNetworkErr (xAndyEvalArr : (Vector<float> * Vector<float>) []) (errFn) (evalNet) =
-        let perfGradDesc (xAndyTuple : (Vector<float> * Vector<float>)) : float =
+        //maybe improve this dunction so that it also returns the results not just discards it!?
+        //so this way u get err but another part of tuple is xAndhArr or only hArr useful for later!
+        
+        let hAndErrEval (xAndyTuple : (Vector<float> * Vector<float>)) : ((Vector<float> * Vector<float>) * float) =
             let x, y = xAndyTuple
             evalNet 
             |> fwdProp (x) //?? calc errr using err fn and accumulate
             |> function
-               | nVLst, _ -> errFn nVLst.Head.xVect y
+               | nVLst, _ -> ((x, nVLst.Head.xVect), errFn nVLst.Head.xVect y)
         
-        //return the avg error over ALL data points
-        (Array.sumBy perfGradDesc xAndyEvalArr) / (float) xAndyEvalArr.Length
+        //return h(x), err for all x1..xN samples
+        //the error per sample is an average over each output feature so its a float
+        //now avg this error over ALL data points
+        //return an array of h for all data-set and also the avg err over all of them
+        Array.map hAndErrEval xAndyEvalArr
+        |> Array.unzip
+        |> function
+           | xAndhArr, errArr -> (xAndhArr, (Array.sum errArr / (float) xAndyEvalArr.Length))
 
 
 let train (xAndyTrainArr) (xAndyTestArr) (initNetwork : Network) (epochs) : (float list) * Network =
@@ -198,13 +195,14 @@ let train (xAndyTrainArr) (xAndyTestArr) (initNetwork : Network) (epochs) : (flo
             
             //return new network with shuffled array
            
-        
+        //we use xAndyTrainArr to evaluate our error in the end of every epoch
+        //in future we can also use xAndyTestArr and return tuples of errors
         //printfn "Training for epoch: %A" epoch
         xAndyTrainArrAndNetwork
         |> trainEpoch
         |> function 
-           | xAndyShuffArr, newNet -> evalAvgNetworkErr xAndyTestArr meanFeatureSqErr newNet
-                                      |> (fun err -> (err, (xAndyShuffArr, newNet))) 
+           | xAndyShuffArr, newNet -> evalAvgNetworkErr xAndyTrainArr meanFeatureSqErr newNet
+                                      |> (fun (_, err) -> (err, (xAndyShuffArr, newNet))) 
 
     
     [1 .. epochs]
@@ -213,21 +211,28 @@ let train (xAndyTrainArr) (xAndyTestArr) (initNetwork : Network) (epochs) : (flo
        | err, (_ , finalNet) -> err, finalNet
 
 
+//extract the 0th dim from an array of N-dim vector tuples (x, y)
+let extractFstDim xAndyVectArr =
+    let mapper (a : (Vector<'a> * Vector<'a>))= 
+            a  |> (fun (x, y) -> x.Item(0), y.Item(0))
+    Array.map mapper xAndyVectArr
 
 
 
 
-
-let plot xAndyTrueArr xAndyTrainArr =
+let plot xAndyTrueArr xAndyTestArr xAndhArr errArr testErr =
     use pl = new PLStream()
     PLplot.Native.sdev("wincairo")
     pl.init()
     pl.env( 0.0, 1.0, 0.0, 1.0, AxesScale.Independent, AxisBox.BoxTicksLabelsAxes )
     let xTrueArr, yTrueArr = Array.unzip xAndyTrueArr
-    let xTrainArr, yTrainArr = Array.unzip xAndyTrainArr
-    pl.lab( "x ->", "y ->", (sprintf "A plot of true values ('x') vs final prediction (line) [MSE: %0.4f]" 1.0))
+    //let xTrainArr, yTrainArr = Array.unzip xAndyTrainArr
+    let xTestArr, yTestArr = Array.unzip xAndyTestArr
+    let xEvalArr, hArr = Array.unzip xAndhArr   //the x values shuld be the same as xTestArr so that its like for like comparision
+    pl.lab( "x ->", "y ->", (sprintf "A plot of true fn (line) and test ('.') vs final hyp ('o') on test data [MSE-Test: %0.4f]" testErr))
     pl.line(xTrueArr, yTrueArr)
-    pl.poin( xTrainArr, yTrainArr, 'o')
+    pl.poin( xTestArr, yTestArr, '.')
+    pl.poin( xEvalArr, hArr, 'o')
 
 [<EntryPoint>]
 let main argv = 
@@ -264,32 +269,24 @@ let main argv =
     // | Ok(x) -> now do all folds (see below)!! -> plot -> print final weight
     // | Error(x) -> now print error
 
-
+    printfn "Training vanilla NN with stochastic gradient descent..."
     let xAndyTrueArr = genDataSet 0.0 1.0 0.001 yRealFn
     let xAndyTrainArr = genDataSet 0.0 1.0 0.01 yRealFnAndNoise
 
-
-    // to be done for every epoch!!
-    //Combinatorics.SelectPermutationInplace (xAndyTrainArr)
-    //let trr = (train xAndyTrainArr )
+    let xAndyTestArr = xAndyTrainArr //for now they both are same
 
     (initNetwork [ 1 ; 8 ; 1] [TANH ; ID])
     |> function
-       | Ok(x) -> (train xAndyTrainArr xAndyTrainArr x epochs) |> (fun (errLst, finalNet) -> 
-                     (printfn "Training for %A epochs done!\nFinal Result:\n%A\n\nFinal Errors:\n%A" epochs finalNet (List.rev errLst)))
+       | Ok(net) -> (train xAndyTrainArr xAndyTestArr net epochs)
+                    |> (fun (errLst, finalNet) -> 
+                        printfn "Training for %A epochs done!\nFinal Network:\n%A\n\nFinal Train Error Lst Reversed:\n%A" epochs finalNet (List.rev errLst) ;
+                        
+                        let xAndhArr, avgTestErr = evalAvgNetworkErr (xAndyTestArr) (meanFeatureSqErr) (finalNet)
+                        
+                        plot (extractFstDim xAndyTrueArr)  (extractFstDim xAndyTestArr) (extractFstDim xAndhArr) errLst avgTestErr
+                       )
+                     
        | Error(x) -> printfn "%A" x
-
-    //printfn "The shufleddd array: \n%A" xAndyTrainArr
-
-    let l = 
-        let mapper (a : (Vector<float> * Vector<float>)) : float = 
-            a
-            |> function
-               | x, y -> x.Item(0)
-        Array.map mapper xAndyTrueArr
-    
-    //plot xAndyTrueFloats xAndyTrueFloats
-
 
 
 
