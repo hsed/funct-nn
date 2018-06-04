@@ -1,8 +1,8 @@
-# funct-linreg
+# funct-nn
 
 ## Description
 
-An implementation of machine learing using a simple linear regression model and a single-layer neural network in F#.
+An implementation of a general vanilla neural network architecture in F#. Any arbitrary number of input/output features, layers and nodes per layer are supported.
 
 ## Instructions
 
@@ -14,8 +14,9 @@ An implementation of machine learing using a simple linear regression model and 
 
 ## Tested On
 - Windows 10: VS Code + F# Language Support + .Net Core Framework 2.1.4
-- Ubuntu 16.04: .Net Core framework 2.1.4 + libplplot-dev
 
 
 ## Article
-For more background on this code please read the medimum article here
+For more background on this code please read the medimum articles:
+- [Part 1](https://towardsdatascience.com/building-neural-networks-in-f-part-1-a2832ae972e6)
+- [Part 2]()
