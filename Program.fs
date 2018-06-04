@@ -18,8 +18,6 @@ type NodesVect = {sVect: Vector<float>; xVect: Vector<float>} //each nodesVect w
 
 type NodesVectList = NodesVect list
 
-let epochs = 3000//50
-let lr = 0.03//0.0001
 
 let getActFn (fn: ActFn) : (float->float) =
     match fn with
@@ -39,18 +37,18 @@ let lastLayerDeriv (x_L : Vector<float>) (s_L : Vector<float>) (y : Vector<float
 //what we will actually do and this is equivalent as above line is
 //do sq err vector, find its mean so this is mean of errors for all features.
 //then mean this over all data points.
-let meanFeatureSqErr (h : Vector<float>) (y: Vector<float>) =
+let meanFeatureSqErr (h : Vector<float>) (y : Vector<float>) =
             (h - y).PointwisePower(2.0).SumMagnitudes() / (float) h.Count
            
 
 
 //----helper func for dataset---->
-let yRealFn x = 0.4*(x**2.0)+0.2+0.3*x*sin(8.0*x)
+let yRealFn x = -0.1*(log10(x+0.1))+0.4+0.5*x*cos(12.0*x)
 let yRealFnAndNoise x = (yRealFn x) + 0.02*Normal.Sample(0.0, 1.0)
 //provide start, step, end and yFn
 //return a tuple array with each element as (x_i, y_i) //we return an array so we can do in-place sort for random shiffling
 //we can then convert it into a list for list reduction although array reduction is also possible.
-let genDataSet (startVal) (endVal) (stepVal) (fN : float -> float) = 
+let genDataSet1D (startVal) (endVal) (stepVal) (fN : float -> float) = 
     [| startVal .. stepVal .. endVal|]
     |> Array.map(fun x -> (CreateVector.Dense(1, x), CreateVector.Dense(1, fN x)))
     
@@ -100,7 +98,7 @@ let fwdProp (x: Vector<float>) (net : Network) : (NodesVectList * Network) =
     (List.fold propNetwork ([{xVect=x ; sVect=x}], []) net)   //initially sVect == xVect i.e. no actFn for raw input
 
 
-let backProp (yVect : Vector<float>) (fwdPropEval : (NodesVectList * (Network))) : Network =
+let backProp (learnRate: float) (yVect : Vector<float>) (fwdPropEval : (NodesVectList * (Network))) : Network =
 
     let rec _calcPrevDelta (deltaLst : Vector<float> list) (layerLst: Network) (nodesInLayerLst: NodesVect list) : Vector<float> list =
         match layerLst with
@@ -120,7 +118,7 @@ let backProp (yVect : Vector<float>) (fwdPropEval : (NodesVectList * (Network)))
     let layerListUpdater (prevNodes : NodesVect) (currDelta : Vector<float>) (currLayer : Layer) : Layer =
         //must add 1.0 on top for correct shape. toRowMatx is same as (colVect).T
         let dEdWMatx =  CreateMatrix.DenseOfColumnArrays( (Array.concat [ [|1.0|] ; prevNodes.xVect.ToArray() ])  ) * currDelta.ToRowMatrix()
-        let newWMatx = currLayer.wMatx - (lr*dEdWMatx)
+        let newWMatx = currLayer.wMatx - (learnRate*dEdWMatx)
 
         // printfn "***updatedW: \n%A\n" newWMatx
         // printfn "dEdWMATx: \n%A\n" dEdWMatx
@@ -149,18 +147,15 @@ let backProp (yVect : Vector<float>) (fwdPropEval : (NodesVectList * (Network)))
 // eval array the data points to test on
 // evalnet: the trained network
 //the errFn to supply will return a single float value for multiple output features and for now this will be the mean of the sq err of features
-let evalAvgNetworkErr (xAndyEvalArr : (Vector<float> * Vector<float>) []) (errFn) (evalNet) =
-        //maybe improve this dunction so that it also returns the results not just discards it!?
-        //so this way u get err but another part of tuple is xAndhArr or only hArr useful for later!
-        
-        let hAndErrEval (xAndyTuple : (Vector<float> * Vector<float>)) : ((Vector<float> * Vector<float>) * float) =
+let evalAvgEpochErr (xAndyEvalArr) (errFn) (evalNet) =
+        let hAndErrEval (xAndyTuple) =
             let x, y = xAndyTuple
             evalNet 
             |> fwdProp (x) //?? calc errr using err fn and accumulate
             |> function
                | nVLst, _ -> ((x, nVLst.Head.xVect), errFn nVLst.Head.xVect y)
         
-        //return h(x), err for all x1..xN samples
+        //return ([h(x1)..h(xN)], avgErr) for all x1..xN samples
         //the error per sample is an average over each output feature so its a float
         //now avg this error over ALL data points
         //return an array of h for all data-set and also the avg err over all of them
@@ -170,16 +165,16 @@ let evalAvgNetworkErr (xAndyEvalArr : (Vector<float> * Vector<float>) []) (errFn
            | xAndhArr, errArr -> (xAndhArr, (Array.sum errArr / (float) xAndyEvalArr.Length))
 
 
-let train (xAndyTrainArr) (initNetwork : Network) (epochs) : (float list) * Network =
-    let trainAndEvalEpoch  (xAndyTrainArrAndNetwork : (((Vector<float> * Vector<float>) []) * Network)) (epoch : int) : (float *  ((Vector<float> * Vector<float>) [] * Network)) =   
+let train (xAndyTrainArr) (initNetwork) (epochs) (learnRate) : (float list) * Network =
+    let trainAndEvalEpoch  (xAndyTrainArrAndNetwork) (epoch)  =   
         // for every epoch u will have an initial state which will be xAndyArr * initNetwork
         // u will create permutation of this array and then u will feed this to tranEpoch fn.
         // once u get result u return shuffledXAndY and new weights but u also have a map part
         // the map part will calc MSE which is l2normerror or sqerr for all X_train
         // note here we are not concerned about generalisation but the ability of the network to be a universal funcion approximator!
-        let trainEpoch (_xAndyTrainArrAndInitNet) : (Vector<float> * Vector<float>) [] * Network =
+        let trainEpoch (_xAndyTrainArrAndInitNet) =
             let perfGradDesc (currNetwork : Network) (xAndyTuple) : Network =
-                currNetwork |> fwdProp (fst xAndyTuple) |> backProp (snd xAndyTuple)
+                currNetwork |> fwdProp (fst xAndyTuple) |> backProp (learnRate) (snd xAndyTuple)
             
            
             _xAndyTrainArrAndInitNet
@@ -196,17 +191,18 @@ let train (xAndyTrainArr) (initNetwork : Network) (epochs) : (float list) * Netw
         xAndyTrainArrAndNetwork
         |> trainEpoch
         |> function 
-           | xAndyShuffArr, newNet -> evalAvgNetworkErr xAndyTrainArr meanFeatureSqErr newNet
+           | xAndyShuffArr, newNet -> evalAvgEpochErr xAndyTrainArr meanFeatureSqErr newNet
                                       |> (fun (_, err) -> (err, (xAndyShuffArr, newNet))) 
 
-    
+    //main entry-point
     [1 .. epochs]
     |> List.mapFold trainAndEvalEpoch (xAndyTrainArr, initNetwork)
     |> function
-       | err, (_ , finalNet) -> err, finalNet
+       | errLst, (_ , finalNet) -> errLst, finalNet
 
 
 //extract the 0th dim from an array of N-dim vector tuples (x, y)
+// only used when you need to plot data
 let extractFstDim xAndyVectArr =
     let mapper (a : (Vector<'a> * Vector<'a>))= 
             a  |> (fun (x, y) -> x.[0], y.[0])
@@ -217,7 +213,7 @@ let extractFstDim xAndyVectArr =
 
 let plot xAndyTrueArr xAndyDataArr xAndhTrainArr xAndhTestArr (errArr : float []) testErr xMax yMax =
     use pl = new PLStream()
-    PLplot.Native.sdev("wincairo")
+    PLplot.Native.sdev("png")
     pl.init()
     pl.ssub(1, 2)
     pl.col0(1)
@@ -229,7 +225,7 @@ let plot xAndyTrueArr xAndyDataArr xAndhTrainArr xAndhTestArr (errArr : float []
     
     pl.col0(2)
     pl.lab( "x ->", "y ->", (sprintf "True Fn (line), Dataset ('.'), Train-Eval ('o'), Test-Eval ('x') [Train-MSE: %0.4f, Test-MSE: %0.4f, Epochs: %d]" errArr.[errArr.Length - 1] testErr errArr.Length))
-    pl.col0(9)
+    pl.col0(5)
     pl.line(xTrueArr, yTrueArr)             // underlying function (excludes noise from data-set)
     pl.col0(11)
     pl.poin( xDataArr, yDataArr, '.')       // full data-set for training and testing
@@ -265,25 +261,27 @@ let main argv =
     
     printfn "Training vanilla NN with stochastic gradient descent..."
     let stopWatch = System.Diagnostics.Stopwatch.StartNew()
-    let xAndyTrueArr = genDataSet 0.0 1.0 0.001 yRealFn
-    let xAndyDataArr = genDataSet 0.0 1.0 0.01 yRealFnAndNoise
+    let xAndyTrueArr = genDataSet1D 0.0 1.0 0.001 yRealFn
+    let xAndyDataArr = genDataSet1D 0.0 1.0 0.01 yRealFnAndNoise
     
     let xAndyTestArr  = Array.filter ( fun (x : Vector<float>, _) -> x.[0]*100.0 % 20.0 = 0.0) xAndyDataArr
     let xAndyTrainArr  = Array.filter ( fun (x : Vector<float>, _) -> x.[0]*100.0 % 20.0 <> 0.0) xAndyDataArr
-    printfn "Dataset Length: %A\tTrain-set Length: %A\tTest-set Length: %A\tLearn-rate: %A\tEpochs: %d" xAndyDataArr.Length xAndyTrainArr.Length xAndyTestArr.Length lr epochs
     
-    //let xAndyTestArr = genDataSet 0.0 1.0 0.01 yRealFnAndNoise //for now they both are same
+    let epochs = 3000   //2500//50 //2500 for <3s at times
+    let lr = 0.03       //0.0001
+
+    printfn "Dataset Length: %A\tTrain-set Length: %A\tTest-set Length: %A\tLearn-rate: %A\tEpochs: %d" xAndyDataArr.Length xAndyTrainArr.Length xAndyTestArr.Length lr epochs
 
     (initNetwork [ 1 ; 8 ; 1] [TANH ; ID])
     |> function
-        | Ok(net) -> (train xAndyTrainArr net epochs)
+        | Ok(net) -> (train xAndyTrainArr net epochs lr)
                      |> function
                         | (errLst, finalNet) -> 
                           printfn "Training for %A epochs done! Took: %dms" epochs stopWatch.ElapsedMilliseconds
                           //printfn "Final Network:\n%A\n\nFinal Train Error Lst Reversed:\n%A" finalNet (List.rev errLst)
                           
-                          let xAndhTestArr, avgTestErr = evalAvgNetworkErr (xAndyTestArr) (meanFeatureSqErr) (finalNet)
-                          let xAndhTrainArr, _ = evalAvgNetworkErr (xAndyTrainArr) (meanFeatureSqErr) (finalNet)
+                          let xAndhTestArr, avgTestErr = evalAvgEpochErr (xAndyTestArr) (meanFeatureSqErr) (finalNet)
+                          let xAndhTrainArr, _ = evalAvgEpochErr (xAndyTrainArr) (meanFeatureSqErr) (finalNet)
                           
                           plot (extractFstDim xAndyTrueArr) (extractFstDim xAndyDataArr) (extractFstDim xAndhTrainArr) (extractFstDim xAndhTestArr) (Array.ofList errLst) avgTestErr 1.0 1.0
                      
