@@ -43,7 +43,7 @@ let meanFeatureSqErr (h : Vector<float>) (y : Vector<float>) =
 
 
 //----helper func for dataset---->
-let yRealFn x = -0.1*(log10(x+0.1))+0.4+0.5*x*cos(12.0*x)
+let yRealFn x = 0.4*(x**2.0)+0.2+0.3*x*sin(8.0*x)
 let yRealFnAndNoise x = (yRealFn x) + 0.02*Normal.Sample(0.0, 1.0)
 //provide start, step, end and yFn
 //return a tuple array with each element as (x_i, y_i) //we return an array so we can do in-place sort for random shiffling
@@ -139,12 +139,10 @@ let backProp (learnRate: float) (yVect : Vector<float>) (fwdPropEval : (NodesVec
     //now simply use list fold2 to calc Wmatx from deltaRevLst and xAndSRevLst.Tail
     //also since they r rev if for every wMatx you append to front, then in the end your new wMAtxList will be automatically sorted
     
-    //printfn "***DEBUG_FINAL_LAYER_ERR_DERIV: %A" deltaL
-    //printfn "***THE DELTAS: \n\n%A" deltaRevLst
     List.map3 layerListUpdater xAndSLstRev.Tail deltaRevLst netRev |> List.rev
 
 // evaluate avg network error by finding the mean of fwdProp errors on a specific data-set
-// eval array the data points to test on
+// eval array: the data points to test on
 // evalnet: the trained network
 //the errFn to supply will return a single float value for multiple output features and for now this will be the mean of the sq err of features
 let evalAvgEpochErr (xAndyEvalArr) (errFn) (evalNet) =
@@ -213,7 +211,7 @@ let extractFstDim xAndyVectArr =
 
 let plot xAndyTrueArr xAndyDataArr xAndhTrainArr xAndhTestArr (errArr : float []) testErr xMax yMax =
     use pl = new PLStream()
-    PLplot.Native.sdev("png")
+    //PLplot.Native.sdev("wincairo")    //un-comment for pre-defined device selection
     pl.init()
     pl.ssub(1, 2)
     pl.col0(1)
@@ -267,8 +265,8 @@ let main argv =
     let xAndyTestArr  = Array.filter ( fun (x : Vector<float>, _) -> x.[0]*100.0 % 20.0 = 0.0) xAndyDataArr
     let xAndyTrainArr  = Array.filter ( fun (x : Vector<float>, _) -> x.[0]*100.0 % 20.0 <> 0.0) xAndyDataArr
     
-    let epochs = 3000   //2500//50 //2500 for <3s at times
-    let lr = 0.03       //0.0001
+    let epochs = 3000
+    let lr = 0.03
 
     printfn "Dataset Length: %A\tTrain-set Length: %A\tTest-set Length: %A\tLearn-rate: %A\tEpochs: %d" xAndyDataArr.Length xAndyTrainArr.Length xAndyTestArr.Length lr epochs
 
