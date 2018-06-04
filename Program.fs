@@ -288,24 +288,4 @@ let main argv =
         | Error(x) -> printfn "%A" x
 
 
-
-    (*
-        top level:
-        make a list of epochs
-        epochLst = [0 .. epochs]
-
-        List.fold epoch with initial weigghts
-
-        in epoch folder function
-
-        get SelectPermutation from array of x,y pairs that u initially created for training at top level
-        Array.fold each x,y pair
-
-        now nested folds!
-        for inner fold do fwdprop and backprop get w then pass this as new state
-        at end pass newW to carry onwards to outer fold then pass on for every epoch.
-        in end get the same training list now map it using const weights to h values
-        now plot h values!! with orig y vals!
-    *)
-
     0 // return an integer exit code
